@@ -10,6 +10,7 @@
 #include "boot_sleep/BootActivity.h"
 #include "boot_sleep/SleepActivity.h"
 #include "browser/OpdsBookBrowserActivity.h"
+#include "flashcards/FlashcardReviewActivity.h"
 #include "home/AlertActivity.h"
 #include "home/CrashActivity.h"
 #include "home/FileBrowserActivity.h"
@@ -235,6 +236,10 @@ void ActivityManager::goToBrowser() {
 
 void ActivityManager::goToReader(std::string path, const bool suppressBackRelease) {
   replaceActivity(std::make_unique<ReaderActivity>(renderer, mappedInput, std::move(path), suppressBackRelease));
+}
+
+void ActivityManager::goToFlashcards(std::string deckPath) {
+  replaceActivity(std::make_unique<FlashcardReviewActivity>(renderer, mappedInput, std::move(deckPath)));
 }
 
 void ActivityManager::goToSleep(bool fromTimeout) {
