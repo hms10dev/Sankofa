@@ -1,4 +1,9 @@
 # Changelog
+## [Unreleased]
+
+### Added
+- Flashcards: review spaced-repetition decks straight from the Home menu. Drop tab-separated `.tsv` decks into `/flashcards` on the SD card, then open Home → Flashcards to study; grading uses the SM-2 algorithm and is saved to a per-deck `.srs` sidecar so cards space out over time.
+
 ## [v1.3.4] - 2026-06-24
 
 ### Added
