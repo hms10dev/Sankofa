@@ -15,9 +15,11 @@ constexpr int HEAD_FONT = UI_12_FONT_ID;         // deck name / counts
 constexpr int META_FONT = UI_10_FONT_ID;         // small meta
 constexpr int SIDE_PADDING = 20;
 
-// SM-2 quality mapping for the 2-button UI.
+// SM-2 quality mapping for the 4-button UI (Again/Hard/Good/Easy).
 constexpr int GRADE_AGAIN = 1;
+constexpr int GRADE_HARD = 2;
 constexpr int GRADE_GOOD = 4;
+constexpr int GRADE_EASY = 5;
 }  // namespace
 
 // ---- date ------------------------------------------------------------------
@@ -115,13 +117,12 @@ void FlashcardReviewActivity::afterGrade() {
 }
 
 void FlashcardReviewActivity::loop() {
-  if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
-    finish();
-    return;
-  }
-
   switch (state_) {
     case State::Front:
+      if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+        finish();
+        return;
+      }
       if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
         state_ = State::Back;  // flip
         requestUpdate();
@@ -129,18 +130,33 @@ void FlashcardReviewActivity::loop() {
       break;
 
     case State::Back:
-      if (mappedInput.wasPressed(MappedInputManager::Button::Left)) {
+      // 4-button grading. With the answer shown, all four front buttons rate the
+      // card (Again/Hard/Good/Easy), so the Back button becomes "Again" here --
+      // there is no exit action mid-answer; back out from the question screen
+      // instead. Suppress the Back release so grading with it can't trigger the
+      // Front-screen exit on the next card.
+      if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
+        mappedInput.suppressNextBackRelease();
         deck_.grade(GRADE_AGAIN, today_);
         afterGrade();
-      } else if (mappedInput.wasPressed(MappedInputManager::Button::Right)) {
+      } else if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
+        deck_.grade(GRADE_HARD, today_);
+        afterGrade();
+      } else if (mappedInput.wasPressed(MappedInputManager::Button::Left)) {
         deck_.grade(GRADE_GOOD, today_);
+        afterGrade();
+      } else if (mappedInput.wasPressed(MappedInputManager::Button::Right)) {
+        deck_.grade(GRADE_EASY, today_);
         afterGrade();
       }
       break;
 
     case State::Empty:
     case State::Done:
-      if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) finish();
+      if (mappedInput.wasReleased(MappedInputManager::Button::Back) ||
+          mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
+        finish();
+      }
       break;
   }
 }
@@ -198,7 +214,7 @@ void FlashcardReviewActivity::render(RenderLock&&) {
   MappedInputManager::Labels labels;
   switch (state_) {
     case State::Front: labels = mappedInput.mapLabels("Back", "Flip", "", ""); break;
-    case State::Back:  labels = mappedInput.mapLabels("Back", "", "Again", "Good"); break;
+    case State::Back:  labels = mappedInput.mapLabels("Again", "Hard", "Good", "Easy"); break;
     default:           labels = mappedInput.mapLabels("Back", "Done", "", ""); break;
   }
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
