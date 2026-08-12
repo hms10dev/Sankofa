@@ -15,6 +15,10 @@ constexpr int HEAD_FONT = UI_12_FONT_ID;         // deck name / counts
 constexpr int META_FONT = UI_10_FONT_ID;         // small meta
 constexpr int SIDE_PADDING = 20;
 
+// Hold the Back button this long on the answer screen to exit the review
+// (a short Back tap grades Again, since all four buttons rate the card).
+constexpr unsigned long REVIEW_EXIT_HOLD_MS = 700;
+
 // SM-2 quality mapping for the 4-button UI (Again/Hard/Good/Easy).
 constexpr int GRADE_AGAIN = 1;
 constexpr int GRADE_HARD = 2;
@@ -130,16 +134,25 @@ void FlashcardReviewActivity::loop() {
       break;
 
     case State::Back:
-      // 4-button grading. With the answer shown, all four front buttons rate the
-      // card (Again/Hard/Good/Easy), so the Back button becomes "Again" here --
-      // there is no exit action mid-answer; back out from the question screen
-      // instead. Suppress the Back release so grading with it can't trigger the
-      // Front-screen exit on the next card.
-      if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
-        mappedInput.suppressNextBackRelease();
-        deck_.grade(GRADE_AGAIN, today_);
-        afterGrade();
-      } else if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
+      // 4-button grading with the answer shown: Confirm/Left/Right rate on press
+      // (Hard/Good/Easy). The Back button does double duty -- a short tap grades
+      // Again, holding it ~0.7s exits the review (no spare button for a dedicated
+      // Back here). getHeldTime() tracks the current button hold.
+      if (mappedInput.isPressed(MappedInputManager::Button::Back)) {
+        if (!backHoldHandled_ && mappedInput.getHeldTime() >= REVIEW_EXIT_HOLD_MS) {
+          backHoldHandled_ = true;  // long press -> exit
+          finish();
+          return;
+        }
+      } else {
+        if (!backHoldHandled_ && mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+          deck_.grade(GRADE_AGAIN, today_);  // short tap -> Again
+          afterGrade();
+          break;
+        }
+        backHoldHandled_ = false;
+      }
+      if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
         deck_.grade(GRADE_HARD, today_);
         afterGrade();
       } else if (mappedInput.wasPressed(MappedInputManager::Button::Left)) {

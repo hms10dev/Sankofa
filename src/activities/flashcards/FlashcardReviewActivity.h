@@ -31,7 +31,8 @@ class FlashcardReviewActivity final : public Activity {
   FlashcardDeck deck_;
   std::string deckPath_;
   State state_ = State::Empty;
-  uint32_t today_ = 0;  // epoch-day, captured on entry
+  uint32_t today_ = 0;         // epoch-day, captured on entry
+  bool backHoldHandled_ = false;  // guards the long-press-Back-to-exit gesture
 
   void afterGrade();
   std::string deckName() const;  // basename for the header
