@@ -1768,21 +1768,9 @@ void HomeActivity::onSettingsOpen() { activityManager.goToSettings(); }
 void HomeActivity::onFileTransferOpen() { activityManager.goToFileTransfer(); }
 
 void HomeActivity::onFlashcardsOpen() {
-  // MVP: open the first .tsv deck in /flashcards. A deck picker is later polish.
-  // Storage.listFiles() returns basenames (see BookmarkStore/ClippingStore), so
-  // the directory is prepended to build the full path.
-  std::string deck;
-  for (const String& f : Storage.listFiles("/flashcards", 50)) {
-    const std::string name(f.c_str());
-    const bool isDeck = name.size() > 4 && (name.compare(name.size() - 4, 4, ".tsv") == 0 ||
-                                            name.compare(name.size() - 4, 4, ".csv") == 0);
-    if (isDeck) {
-      deck = "/flashcards/" + name;
-      break;
-    }
-  }
-  if (deck.empty()) deck = "/flashcards/deck.tsv";  // missing file → review screen shows its empty state
-  activityManager.goToFlashcards(deck);
+  // Open the on-device deck picker, which lists every .tsv/.csv deck in
+  // /flashcards and launches the chosen one for review.
+  activityManager.goToFlashcardsPicker();
 }
 
 void HomeActivity::onOpdsBrowserOpen() { activityManager.goToBrowser(); }

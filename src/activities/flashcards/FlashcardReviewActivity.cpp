@@ -196,7 +196,7 @@ void FlashcardReviewActivity::render(RenderLock&&) {
     case State::Empty:
       renderer.drawCenteredText(HEAD_FONT, h / 2 - renderer.getLineHeight(HEAD_FONT), "No cards due", true,
                                 EpdFontFamily::BOLD);
-      renderer.drawCenteredText(META_FONT, h / 2 + 8, "Put .tsv decks in /flashcards on the SD card", true,
+      renderer.drawCenteredText(META_FONT, h / 2 + 8, "Put .tsv or .csv decks in /flashcards on the SD card", true,
                                 EpdFontFamily::REGULAR);
       break;
 

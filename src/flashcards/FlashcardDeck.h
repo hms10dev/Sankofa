@@ -53,6 +53,11 @@ class FlashcardDeck {
   // Does NOT insert it into the current due queue — it lands next session.
   static bool appendCard(const std::string& tsvPath, const std::string& front, const std::string& back);
 
+  // Count the cards in a deck file (header/comment/blank lines skipped) by
+  // streaming it once, without building the due queue or touching the sidecar.
+  // Cheap enough for the deck picker to call per deck on entry.
+  static size_t countCards(const std::string& tsvPath);
+
  private:
   // Tiny per-card scheduling record — ALL cards' state lives here (a few bytes
   // each), even ones not due today, so the sidecar can be rewritten completely

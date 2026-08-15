@@ -169,6 +169,21 @@ bool FlashcardDeck::load(const std::string& tsvPath, uint32_t todayEpochDay) {
   return true;
 }
 
+size_t FlashcardDeck::countCards(const std::string& tsvPath) {
+  HalFile f;
+  if (!Storage.openFileForRead(MOD, tsvPath, f)) return 0;
+  size_t n = 0;
+  std::string line, front, back;
+  while (readLine(f, line)) {
+    if (line.empty() || line[0] == '#') continue;
+    if (!splitCardLine(line, front, back)) continue;
+    if (front == "Front" && back == "Back") continue;  // header row
+    ++n;
+  }
+  f.close();
+  return n;
+}
+
 const FlashcardDeck::Card* FlashcardDeck::current() const {
   return cursor_ < due_.size() ? &due_[cursor_] : nullptr;
 }
