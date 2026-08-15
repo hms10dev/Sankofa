@@ -1,0 +1,57 @@
+<div class="card">
+      <div class="fc-head"><h2>Deck</h2></div>
+      <div class="deck-row">
+        <select id="deckSelect" aria-label="Choose a deck"></select>
+        <button class="btn btn-ghost" id="newDeck" type="button">New deck</button>
+        <button class="btn btn-danger" id="delDeck" type="button">Delete deck</button>
+      </div>
+      <p class="deck-meta" id="deckMeta"></p>
+    </div>
+
+    <div class="card">
+      <div class="fc-head"><h2>Import CSV / TSV</h2></div>
+      <p class="import-desc">Paste rows or choose a file &mdash; the first two columns become front and back. Anki and Quizlet exports drop straight in.</p>
+      <textarea class="import-box" id="importText" spellcheck="false" placeholder="hola,hello&#10;gracias,thank you&#10;&quot;uno, dos, tres&quot;,&quot;one, two, three&quot;&#10;&#10;&mdash; or tab-separated &mdash;&#10;buenos días&#9;good morning"></textarea>
+      <div class="import-controls">
+        <input type="file" id="importFile" accept=".csv,.tsv,.txt" aria-label="Choose a CSV or TSV file" />
+        <label class="field">Delimiter
+          <select id="delim">
+            <option value="auto">Auto</option>
+            <option value="comma">Comma</option>
+            <option value="tab">Tab</option>
+          </select>
+        </label>
+        <label class="field">Mode
+          <select id="mode">
+            <option value="append">Append</option>
+            <option value="replace">Replace</option>
+          </select>
+        </label>
+        <button class="btn btn-primary" id="importBtn" type="button">Import</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="fc-head">
+        <h2>Cards</h2>
+        <button class="btn btn-ghost" id="addCard" type="button">+ Add card</button>
+      </div>
+      <div class="table-wrap">
+        <table class="cards">
+          <thead>
+            <tr>
+              <th class="col-num">#</th>
+              <th>Front</th>
+              <th>Back</th>
+              <th class="col-x"></th>
+            </tr>
+          </thead>
+          <tbody id="rows"><tr><td colspan="4"><p class="empty">Loading&hellip;</p></td></tr></tbody>
+        </table>
+      </div>
+      <p class="hint">Editing a card&rsquo;s text makes it a new card, so it restarts that card&rsquo;s review schedule. Adding cards and fixing decks before you study is always safe; untouched cards keep their history.</p>
+      <div class="editor-foot">
+        <button class="btn btn-primary" id="saveDeck" type="button">Save deck</button>
+        <span id="status"></span>
+      </div>
+    </div>

@@ -53,6 +53,7 @@ enum class HomeMenuAction {
   ReadingStats,
   Bookmarks,
   FileTransfer,
+  Flashcards,
   Settings,
 };
 
@@ -63,7 +64,8 @@ struct HomeMenuEntry {
 };
 
 struct HomeMenuEntries {
-  static constexpr int kCapacity = 8;
+  // Continue Reading + Browse + Recents + OPDS + Stats + Saved + Transfer + Flashcards + Settings = 9 max.
+  static constexpr int kCapacity = 9;
   std::array<HomeMenuEntry, kCapacity> entries{};
   int count = 0;
 
@@ -222,6 +224,8 @@ void appendHomeMenuItems(HomeMenuEntries& items, bool hasOpdsServers, bool hasRe
   }
 
   items.push({tr(STR_FILE_TRANSFER), Transfer, HomeMenuAction::FileTransfer});
+  // TODO: replace the "Flashcards" literal with a translated string constant and Book with a dedicated flashcards icon.
+  items.push({"Flashcards", Book, HomeMenuAction::Flashcards});
   items.push({tr(STR_SETTINGS_TITLE), Settings, HomeMenuAction::Settings});
 }
 
@@ -269,6 +273,8 @@ HomeMenuAction homeActionForInitialMenuItem(HomeMenuItem item) {
       return HomeMenuAction::OpdsBrowser;
     case HomeMenuItem::FILE_TRANSFER:
       return HomeMenuAction::FileTransfer;
+    case HomeMenuItem::FLASHCARDS:
+      return HomeMenuAction::Flashcards;
     case HomeMenuItem::SETTINGS_MENU:
       return HomeMenuAction::Settings;
     case HomeMenuItem::NONE:
@@ -509,7 +515,7 @@ static_assert(HomeActivity::kMaxCachedBooks >= LyraCarouselMetrics::values.homeR
 
 int HomeActivity::getMenuItemCount() const {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  int count = 4;  // File Browser, Recents, File transfer, Settings
+  int count = 5;  // File Browser, Recents, File transfer, Flashcards, Settings
   if (!metrics.homeContinueReadingInMenu && !recentBooks.empty()) {
     count += getVisibleRecentBookCount();
   } else if (metrics.homeContinueReadingInMenu && !recentBooks.empty()) {
@@ -1347,6 +1353,7 @@ void HomeActivity::loop() {
             onFileTransferOpen();
             break;
           case HomeMenuAction::ContinueReading:
+          case HomeMenuAction::Flashcards:  // not surfaced in the minimal menu
           case HomeMenuAction::Settings:
             break;
         }
@@ -1537,6 +1544,9 @@ void HomeActivity::loop() {
         break;
       case HomeMenuAction::FileTransfer:
         onFileTransferOpen();
+        break;
+      case HomeMenuAction::Flashcards:
+        onFlashcardsOpen();
         break;
       case HomeMenuAction::Settings:
         onSettingsOpen();
@@ -1756,6 +1766,12 @@ void HomeActivity::onRecentsOpen() { activityManager.goToRecentBooks(); }
 void HomeActivity::onSettingsOpen() { activityManager.goToSettings(); }
 
 void HomeActivity::onFileTransferOpen() { activityManager.goToFileTransfer(); }
+
+void HomeActivity::onFlashcardsOpen() {
+  // Open the on-device deck picker, which lists every .tsv/.csv deck in
+  // /flashcards and launches the chosen one for review.
+  activityManager.goToFlashcardsPicker();
+}
 
 void HomeActivity::onOpdsBrowserOpen() { activityManager.goToBrowser(); }
 

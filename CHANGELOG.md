@@ -1,4 +1,11 @@
 # Changelog
+## [Unreleased]
+
+### Added
+- Flashcards: review spaced-repetition decks straight from the Home menu. Drop `.tsv` or `.csv` decks into `/flashcards` on the SD card, then open Home → Flashcards to study; grading uses session-based SM-2 (Again/Hard/Good/Easy). Cards may be **comma- or tab-separated** (quoted `"fields, with commas"` are handled) and a leading `Front/Back` header row is skipped, so spreadsheet and Anki/Quizlet exports work as-is. Each card's schedule (`Repetitions, EasinessFactor, Interval, NextReviewSession`) is stored **in the deck file itself**, so progress is portable and round-trips with the Inkpoint reader; a plain 2-column deck gains these columns automatically on first review.
+- Flashcards: an on-device **deck picker** (Home → Flashcards) that lists every `.tsv`/`.csv` deck in `/flashcards` with its card count, so devices with multiple decks are no longer stuck on whichever sorts first — pick one to review, Back returns to the list.
+- Flashcards deck editor in the Wi-Fi portal: a new **Flashcards** page to create, edit, and delete decks from your browser, including CSV/TSV import (Anki/Quizlet exports work directly) — no on-device typing. Decks are saved back in their original `.csv` or `.tsv` format.
+
 ## [v1.3.4] - 2026-06-24
 
 ### Added
