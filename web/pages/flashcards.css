@@ -81,7 +81,7 @@ input[type="file"]::file-selector-button {
 input[type="file"]::file-selector-button:hover { border-color: var(--accent-color); color: var(--accent-hover-color); }
 
 .table-wrap { overflow-x: auto; margin-top: 14px; }
-table.cards { width: 100%; border-collapse: collapse; font-size: 0.95em; }
+table.cards { width: 100%; border-collapse: collapse; font-size: 0.95em; table-layout: fixed; }
 table.cards th {
         text-align: left;
         color: var(--label-color);
@@ -92,11 +92,11 @@ table.cards th {
         padding: 4px 8px 10px;
         border-bottom: 1px solid var(--border-color);
       }
-table.cards td { padding: 5px 8px; border-bottom: 1px solid var(--border-color); vertical-align: middle; }
+table.cards td { padding: 5px 8px; border-bottom: 1px solid var(--border-color); vertical-align: top; }
 table.cards tr:last-child td { border-bottom: none; }
 table.cards tbody tr:hover { background: var(--accent-soft); }
-.col-num { width: 34px; color: var(--label-color); font-variant-numeric: tabular-nums; text-align: right; padding-right: 12px; }
-.col-x { width: 40px; text-align: center; }
+.col-num { width: 34px; color: var(--label-color); font-variant-numeric: tabular-nums; text-align: right; padding-right: 12px; padding-top: 13px; }
+.col-x { width: 40px; text-align: center; padding-top: 8px; }
 .cell-input {
         width: 100%;
         border: 1px solid transparent;
@@ -106,6 +106,14 @@ table.cards tbody tr:hover { background: var(--accent-soft); }
         color: var(--font-color);
         font-size: 0.95em;
         font-family: inherit;
+        line-height: 1.45;
+        display: block;
+        box-sizing: border-box;
+        resize: none;          /* height is auto-managed by JS to fit content */
+        overflow: hidden;
+        min-height: 36px;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
       }
 .cell-input:hover { border-color: var(--border-color); }
 .cell-input:focus { outline: none; border-color: var(--accent-color); background: var(--card-bg); box-shadow: 0 0 0 3px var(--accent-soft); }

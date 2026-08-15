@@ -10,7 +10,10 @@
 #include "fontIds.h"
 
 namespace {
-constexpr int CARD_FONT = BITTER_18_FONT_ID;  // card face (serif)
+// Card face (serif). BITTER_16 (16px "large"), not BITTER_18 (18px "xlarge"):
+// the default firmware build sets -DOMIT_XLARGE_FONT, so an 18px font isn't
+// compiled in and would render nothing on device.
+constexpr int CARD_FONT = BITTER_16_FONT_ID;
 constexpr int HEAD_FONT = UI_12_FONT_ID;      // deck name / counts
 constexpr int META_FONT = UI_10_FONT_ID;      // small meta
 constexpr int SIDE_PADDING = 20;

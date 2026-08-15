@@ -14,6 +14,25 @@ function flash(msg, ok = true) {
 
 function clean(s) { return s.replace(/[\t\r\n]+/g, ' ').trim(); }
 
+// Size a textarea to fit its content (cards can be long, so cells wrap+grow).
+function autoGrow(ta) {
+  ta.style.height = 'auto';
+  ta.style.height = Math.max(ta.scrollHeight, 24) + 'px';
+}
+function growAll() {
+  for (const ta of rowsEl.querySelectorAll('textarea.cell-input')) autoGrow(ta);
+}
+function makeCell(value, placeholder) {
+  const ta = document.createElement('textarea');
+  ta.className = 'cell-input';
+  ta.rows = 1;
+  ta.spellcheck = false;
+  ta.value = value;
+  ta.placeholder = placeholder;
+  ta.addEventListener('input', () => autoGrow(ta));
+  return ta;
+}
+
 function makeRow(front = '', back = '', sched = null) {
   const tr = document.createElement('tr');
   tr._sched = sched;  // preserved SM-2 columns [reps, ef, interval, nextSession], or null for a new card
@@ -22,13 +41,11 @@ function makeRow(front = '', back = '', sched = null) {
   num.className = 'col-num';
 
   const tdF = document.createElement('td');
-  const inF = document.createElement('input');
-  inF.className = 'cell-input'; inF.type = 'text'; inF.value = front; inF.placeholder = 'front';
+  const inF = makeCell(front, 'front');
   tdF.appendChild(inF);
 
   const tdB = document.createElement('td');
-  const inB = document.createElement('input');
-  inB.className = 'cell-input'; inB.type = 'text'; inB.value = back; inB.placeholder = 'back';
+  const inB = makeCell(back, 'back');
   tdB.appendChild(inB);
 
   const tdX = document.createElement('td');
@@ -74,6 +91,7 @@ function setRows(cards) {
   if (!cards.length) rowsEl.appendChild(makeRow());
   else cards.forEach(c => rowsEl.appendChild(makeRow(c.front, c.back, c.sched)));
   renumber();
+  growAll();
 }
 
 function showEmpty(msg) {
@@ -114,7 +132,7 @@ function buildDeck() {
   const lines = [header];
   let count = 0;
   for (const tr of rowsEl.children) {
-    const inputs = tr.querySelectorAll('input');
+    const inputs = tr.querySelectorAll('.cell-input');
     if (inputs.length < 2) continue;
     const f = inputs[0].value.replace(/[\t\r\n]+/g, ' ').trim();
     const b = inputs[1].value.replace(/[\t\r\n]+/g, ' ').trim();
@@ -160,6 +178,7 @@ function doImport() {
   if (replace || !rowsEl.querySelector('.col-num')) rowsEl.replaceChildren();
   cards.forEach(([f, b]) => rowsEl.appendChild(makeRow(f, b)));
   renumber();
+  growAll();
   flash('Imported ' + cards.length + ' card' + (cards.length === 1 ? '' : 's') +
     ' (' + (delim === '\t' ? 'TSV' : 'CSV') + ').');
 }
@@ -254,7 +273,7 @@ function newDeck() {
   renumber();
   setMeta(name, 0);
   flash('New deck "' + name + '" — add cards, then Save.');
-  rowsEl.querySelector('input').focus();
+  rowsEl.querySelector('.cell-input').focus();
 }
 
 document.getElementById('addCard').addEventListener('click', () => {
@@ -262,7 +281,9 @@ document.getElementById('addCard').addEventListener('click', () => {
   const tr = makeRow();
   rowsEl.appendChild(tr);
   renumber();
-  tr.querySelector('input').focus();
+  const cell = tr.querySelector('.cell-input');
+  autoGrow(cell);
+  cell.focus();
 });
 document.getElementById('saveDeck').addEventListener('click', saveDeck);
 document.getElementById('newDeck').addEventListener('click', newDeck);
