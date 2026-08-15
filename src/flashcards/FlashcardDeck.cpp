@@ -1,259 +1,271 @@
 // src/flashcards/FlashcardDeck.cpp
 #include "FlashcardDeck.h"
 
-#include <HalStorage.h>              // Storage singleton + HalFile
-#include <common/FsApiConstants.h>  // O_WRONLY / O_CREAT / O_APPEND (oflag_t)
-#include <Logging.h>                // LOG_ERR / LOG_INF
+#include <HalStorage.h>            // Storage singleton + HalFile
+#include <Logging.h>              // LOG_ERR / LOG_DBG
 
-#include <algorithm>
-#include <cstring>
+#include <cstdlib>                // atoi / atol
+#include <utility>                // std::swap
 
 namespace {
 
 constexpr const char* MOD = "FLC";  // Storage log tag
 
-// FNV-1a over front + '\t' + back → stable 32-bit card identity. Independent of
-// line position, so editing/reordering the .tsv preserves scheduling.
-uint32_t cardHash(const std::string& front, const std::string& back) {
-  uint32_t h = 2166136261u;
-  auto mix = [&](const std::string& s) {
-    for (unsigned char c : s) { h ^= c; h *= 16777619u; }
-  };
-  mix(front);
-  h ^= '\t'; h *= 16777619u;
-  mix(back);
-  return h ? h : 1;  // never collide with the 0 "empty" sentinel
+// Column order in the deck file (Inkpoint layout).
+enum Col { COL_FRONT = 0, COL_BACK = 1, COL_REPS = 2, COL_EF = 3, COL_INTERVAL = 4, COL_NEXT = 5, TOTAL_COLS = 6 };
+
+char delimiterForPath(const std::string& path) {
+  return (path.size() >= 4 && path.compare(path.size() - 4, 4, ".tsv") == 0) ? '\t' : ',';
 }
 
-// Read one '\n'-terminated line from an open HalFile into `out` (without the newline).
-// Returns false at EOF with nothing read. Trailing '\r' is stripped.
+// Read one '\n'-terminated line (without the newline; trailing '\r' stripped).
+// Returns false at EOF with nothing read.
 bool readLine(HalFile& f, std::string& out) {
   out.clear();
   char c;
-  int n;
   bool any = false;
-  while ((n = f.read(&c, 1)) == 1) {
+  while (f.read(&c, 1) == 1) {
     any = true;
     if (c == '\n') break;
     if (c != '\r') out.push_back(c);
   }
-  return any || n == 1;
+  return any;
 }
 
-// Replace tabs/newlines in appended fields so one card always stays one line.
-std::string sanitizeField(const std::string& s) {
-  std::string o = s;
-  for (char& c : o)
-    if (c == '\t' || c == '\n' || c == '\r') c = ' ';
-  return o;
-}
-
-// Extract the first two fields of a deck line as front/back. The delimiter is a
-// tab when the line has one (spreadsheet/Anki-style .tsv), otherwise a comma
-// (.csv). Fields are parsed RFC-4180-style, so double-quoted values keep their
-// embedded delimiters and "" un-escapes to a single quote. Any columns past the
-// first two (e.g. a deck that stores its own SM-2 stats: Repetitions,
-// EasinessFactor, Interval, NextReviewSession) are ignored. Returns false when
-// the line has no delimiter at all.
-bool splitCardLine(const std::string& line, std::string& front, std::string& back) {
-  front.clear();
-  back.clear();
-
-  const char delim = line.find('\t') != std::string::npos ? '\t' : ',';
+// Parse a whole line into fields, RFC-4180 quote-aware (a quote only opens a
+// field at its start, matching Inkpoint's CsvParser::parseLine). Always emits at
+// least one field.
+void parseRow(const std::string& line, char delim, std::vector<std::string>& out) {
+  out.clear();
+  std::string field;
   bool inQuotes = false;
-  int field = 0;  // 0 = front, 1 = back, 2 = reached the third column (stop)
-  bool sawDelim = false;
   for (size_t i = 0; i < line.size(); ++i) {
     const char c = line[i];
-    std::string& dst = field == 0 ? front : back;
     if (inQuotes) {
       if (c == '"') {
-        if (i + 1 < line.size() && line[i + 1] == '"') {  // "" -> literal quote
-          if (field < 2) dst += '"';
-          ++i;
-        } else {
-          inQuotes = false;
-        }
-      } else if (field < 2) {
-        dst += c;
+        if (i + 1 < line.size() && line[i + 1] == '"') { field += '"'; ++i; }
+        else inQuotes = false;
+      } else {
+        field += c;
       }
-    } else if (c == '"') {
+    } else if (c == '"' && field.empty()) {
       inQuotes = true;
     } else if (c == delim) {
-      sawDelim = true;
-      if (++field >= 2) break;  // front + back captured; ignore any extra columns
-    } else if (field < 2) {
-      dst += c;
+      out.push_back(std::move(field));
+      field.clear();
+    } else {
+      field += c;
     }
   }
-  return sawDelim;  // need at least one delimiter to have both a front and a back
+  out.push_back(std::move(field));
 }
 
-std::string srsPathFor(const std::string& tsvPath) {
-  auto dot = tsvPath.find_last_of('.');
-  return (dot == std::string::npos ? tsvPath : tsvPath.substr(0, dot)) + ".srs";
+bool isHeaderRow(const std::vector<std::string>& fields) {
+  return fields.size() >= 2 && fields[COL_FRONT] == "Front" && fields[COL_BACK] == "Back";
+}
+
+// Quote a field for output if it contains the delimiter, a quote, or a newline.
+std::string quoteField(const std::string& field, char delim) {
+  bool needs = false;
+  for (char c : field) {
+    if (c == delim || c == '"' || c == '\n' || c == '\r') { needs = true; break; }
+  }
+  if (!needs) return field;
+  std::string out = "\"";
+  for (char c : field) {
+    if (c == '"') out += "\"\"";
+    else out += c;
+  }
+  out += '"';
+  return out;
 }
 
 }  // namespace
 
-FlashcardDeck::SrsRec* FlashcardDeck::findRec(uint32_t hash) {
-  for (auto& r : srs_)
-    if (r.hash == hash) return &r;
-  return nullptr;
-}
+bool FlashcardDeck::load(const std::string& path, uint32_t session, uint16_t poolSize) {
+  path_ = path;
+  cards_.clear();
+  dueIdx_.clear();
+  duePos_ = reviewed_ = 0;
 
-bool FlashcardDeck::load(const std::string& tsvPath, uint32_t todayEpochDay) {
-  tsvPath_ = tsvPath;
-  srsPath_ = srsPathFor(tsvPath);
-  due_.clear();
-  srs_.clear();
-  cursor_ = reviewed_ = totalCount_ = 0;
-  overflowed_ = false;
-
-  // ---- 1. Load the sidecar (all scheduling state) if present -------------
-  // Sidecar is a flat array of fixed 14-byte little-endian records:
-  //   hash:u32, due:u32, intervalDays:u16, reps:u16, ease:u16
-  if (Storage.exists(srsPath_.c_str())) {
-    HalFile sf;
-    if (Storage.openFileForRead(MOD, srsPath_, sf)) {
-      uint8_t rec[14];
-      while (sf.read(rec, sizeof(rec)) == static_cast<int>(sizeof(rec))) {
-        SrsRec r;
-        std::memcpy(&r.hash, rec + 0, 4);
-        std::memcpy(&r.due, rec + 4, 4);
-        std::memcpy(&r.srs.intervalDays, rec + 8, 2);
-        std::memcpy(&r.srs.reps, rec + 10, 2);
-        std::memcpy(&r.srs.ease, rec + 12, 2);
-        srs_.push_back(r);
-      }
-      sf.close();
-    }
-  }
-
-  // ---- 2. Stream the .tsv, build the due-today queue ---------------------
   HalFile f;
-  if (!Storage.openFileForRead(MOD, tsvPath_, f)) {
-    LOG_ERR(MOD, "Cannot open deck: %s", tsvPath_.c_str());
+  if (!Storage.openFileForRead(MOD, path_, f)) {
+    LOG_ERR(MOD, "Cannot open deck: %s", path_.c_str());
     return false;
   }
 
-  std::string line, front, back;
+  const char delim = delimiterForPath(path_);
+  bool sawSchedule = false;  // did any row carry SM-2 columns?
+  bool headerSeen = false;
+
+  std::string line;
+  std::vector<std::string> fields;
   while (readLine(f, line)) {
     if (line.empty() || line[0] == '#') continue;
-    if (!splitCardLine(line, front, back)) continue;         // no tab or comma separator
-    if (front == "Front" && back == "Back") continue;        // spreadsheet/Anki header row
-    totalCount_++;
-
-    Card c;
-    c.front = front;
-    c.back = back;
-    c.hash = cardHash(c.front, c.back);
-
-    if (SrsRec* r = findRec(c.hash)) {
-      c.srs = r->srs;
-      c.due = r->due;
-    } else {
-      c.srs = SrsState{};  // new card: defaults, due immediately
-      c.due = 0;
+    parseRow(line, delim, fields);
+    if (fields.size() < 2) continue;
+    if (!headerSeen && isHeaderRow(fields)) {  // skip a leading Front/Back header
+      headerSeen = true;
+      continue;
     }
 
-    const bool isDue = c.due <= todayEpochDay;  // due==0 (new) is always due
-    if (!isDue) continue;
-    if (due_.size() >= MAX_DUE) { overflowed_ = true; continue; }
-    due_.push_back(std::move(c));
+    Card c;
+    c.front = fields[COL_FRONT];
+    c.back = fields[COL_BACK];
+    if (fields.size() >= TOTAL_COLS) {
+      sawSchedule = true;
+      c.schedule.repetitions = static_cast<uint16_t>(atoi(fields[COL_REPS].c_str()));
+      c.schedule.easinessFactor = static_cast<uint16_t>(atoi(fields[COL_EF].c_str()));
+      c.schedule.interval = static_cast<uint32_t>(atol(fields[COL_INTERVAL].c_str()));
+      c.schedule.nextReviewSession = static_cast<uint32_t>(atol(fields[COL_NEXT].c_str()));
+    }
+    cards_.push_back(std::move(c));
   }
   f.close();
 
-  LOG_INF(MOD, "Deck %s: %u cards, %u due%s", tsvPath_.c_str(), (unsigned)totalCount_,
-          (unsigned)due_.size(), overflowed_ ? " (capped)" : "");
+  // A plain 2-column deck gains SM-2 columns on first load so future grades have
+  // somewhere to persist — same as Inkpoint.
+  if (!sawSchedule && !cards_.empty()) {
+    LOG_DBG(MOD, "Upgrading %s with SM-2 columns", path_.c_str());
+    save();
+  }
+
+  buildDueList(session, poolSize);
+  LOG_DBG(MOD, "Deck %s: %u cards, %u due (session %u)", path_.c_str(), (unsigned)cards_.size(),
+          (unsigned)dueIdx_.size(), (unsigned)session);
+  return !cards_.empty();
+}
+
+void FlashcardDeck::buildDueList(uint32_t session, uint16_t poolSize) {
+  dueIdx_.clear();
+  duePos_ = 0;
+  for (size_t i = 0; i < cards_.size(); ++i) {
+    if (cards_[i].schedule.nextReviewSession <= session) {
+      dueIdx_.push_back(i);
+      if (poolSize > 0 && dueIdx_.size() >= poolSize) break;
+    }
+  }
+
+  // Fisher-Yates shuffle with a portable xorshift PRNG (no esp_random dependency,
+  // so this also compiles for the host/simulator). Seeded from the session and
+  // deck size: stable within a session, varied across sessions.
+  uint32_t rng = (session * 2654435761u) ^ (static_cast<uint32_t>(cards_.size()) * 40503u) ^ 0x9e3779b9u;
+  rng |= 1u;  // xorshift must not start at 0
+  auto nextRand = [&rng]() {
+    rng ^= rng << 13;
+    rng ^= rng >> 17;
+    rng ^= rng << 5;
+    return rng;
+  };
+  for (size_t i = dueIdx_.size(); i > 1; --i) {
+    const size_t j = nextRand() % i;
+    std::swap(dueIdx_[i - 1], dueIdx_[j]);
+  }
+}
+
+const FlashcardDeck::Card* FlashcardDeck::current() const {
+  return duePos_ < dueIdx_.size() ? &cards_[dueIdx_[duePos_]] : nullptr;
+}
+
+bool FlashcardDeck::grade(Grade g, uint32_t session, uint16_t learningThreshold) {
+  if (duePos_ >= dueIdx_.size()) return false;
+  Card& c = cards_[dueIdx_[duePos_]];
+  c.schedule = SM2::review(c.schedule, g, session, learningThreshold);
+  ++duePos_;
+  ++reviewed_;
+  save();  // persist the whole file, as Inkpoint does after each grade
+  return duePos_ < dueIdx_.size();
+}
+
+bool FlashcardDeck::save() const {
+  const char delim = delimiterForPath(path_);
+  const std::string tmp = path_ + ".tmp";
+
+  HalFile f;
+  if (!Storage.openFileForWrite(MOD, tmp, f)) {
+    LOG_ERR(MOD, "Cannot open deck temp: %s", tmp.c_str());
+    return false;
+  }
+
+  auto writeStr = [&f](const std::string& s) { f.write(s.c_str(), s.size()); };
+
+  // Header
+  std::string header;
+  header += "Front";
+  header += delim;
+  header += "Back";
+  header += delim;
+  header += "Repetitions";
+  header += delim;
+  header += "EasinessFactor";
+  header += delim;
+  header += "Interval";
+  header += delim;
+  header += "NextReviewSession";
+  header += '\n';
+  writeStr(header);
+
+  char nums[48];
+  for (const Card& c : cards_) {
+    std::string row;
+    row += quoteField(c.front, delim);
+    row += delim;
+    row += quoteField(c.back, delim);
+    row += delim;
+    std::snprintf(nums, sizeof(nums), "%u%c%u%c%lu%c%lu", (unsigned)c.schedule.repetitions, delim,
+                  (unsigned)c.schedule.easinessFactor, delim, (unsigned long)c.schedule.interval, delim,
+                  (unsigned long)c.schedule.nextReviewSession);
+    row += nums;
+    row += '\n';
+    writeStr(row);
+  }
+  f.flush();
+  f.close();
+
+  Storage.remove(path_.c_str());  // SdFat rename won't overwrite; drop first
+  if (!Storage.rename(tmp.c_str(), path_.c_str())) {
+    LOG_ERR(MOD, "Cannot rename deck into place: %s", path_.c_str());
+    return false;
+  }
   return true;
 }
 
-size_t FlashcardDeck::countCards(const std::string& tsvPath) {
+size_t FlashcardDeck::countCards(const std::string& path) {
   HalFile f;
-  if (!Storage.openFileForRead(MOD, tsvPath, f)) return 0;
+  if (!Storage.openFileForRead(MOD, path, f)) return 0;
+  const char delim = delimiterForPath(path);
   size_t n = 0;
-  std::string line, front, back;
+  bool headerSeen = false;
+  std::string line;
+  std::vector<std::string> fields;
   while (readLine(f, line)) {
     if (line.empty() || line[0] == '#') continue;
-    if (!splitCardLine(line, front, back)) continue;
-    if (front == "Front" && back == "Back") continue;  // header row
+    parseRow(line, delim, fields);
+    if (fields.size() < 2) continue;
+    if (!headerSeen && isHeaderRow(fields)) { headerSeen = true; continue; }
     ++n;
   }
   f.close();
   return n;
 }
 
-const FlashcardDeck::Card* FlashcardDeck::current() const {
-  return cursor_ < due_.size() ? &due_[cursor_] : nullptr;
-}
-
-void FlashcardDeck::grade(int quality, uint32_t todayEpochDay) {
-  if (cursor_ >= due_.size()) return;
-  Card& c = due_[cursor_];
-
-  uint16_t interval = sm2Advance(c.srs, quality);
-  c.due = todayEpochDay + interval;
-
-  // Upsert the scheduling record so the sidecar rewrite is complete.
-  if (SrsRec* r = findRec(c.hash)) {
-    r->srs = c.srs;
-    r->due = c.due;
-  } else {
-    srs_.push_back(SrsRec{c.hash, c.due, c.srs});
+size_t FlashcardDeck::countDue(const std::string& path, uint32_t session) {
+  HalFile f;
+  if (!Storage.openFileForRead(MOD, path, f)) return 0;
+  const char delim = delimiterForPath(path);
+  size_t n = 0;
+  bool headerSeen = false;
+  std::string line;
+  std::vector<std::string> fields;
+  while (readLine(f, line)) {
+    if (line.empty() || line[0] == '#') continue;
+    parseRow(line, delim, fields);
+    if (fields.size() < 2) continue;
+    if (!headerSeen && isHeaderRow(fields)) { headerSeen = true; continue; }
+    // New cards (no schedule column, or nextReviewSession 0) are always due.
+    const uint32_t next = fields.size() >= TOTAL_COLS ? static_cast<uint32_t>(atol(fields[COL_NEXT].c_str())) : 0;
+    if (next <= session) ++n;
   }
-
-  saveSidecar();
-  reviewed_++;
-  cursor_++;
-}
-
-bool FlashcardDeck::saveSidecar() {
-  // Crash-safe: write the full record set to a temp file, then rename over the
-  // canonical one. An interrupted write damages only the throwaway temp — the
-  // same pattern the reader uses for progress.bin. A torn sidecar would else
-  // read as corrupt scheduling state.
-  const std::string tmp = srsPath_ + ".tmp";
-  {
-    HalFile f;
-    if (!Storage.openFileForWrite(MOD, tmp, f)) {
-      LOG_ERR(MOD, "Cannot open sidecar temp: %s", tmp.c_str());
-      return false;
-    }
-    uint8_t rec[14];
-    for (const SrsRec& r : srs_) {
-      std::memcpy(rec + 0, &r.hash, 4);
-      std::memcpy(rec + 4, &r.due, 4);
-      std::memcpy(rec + 8, &r.srs.intervalDays, 2);
-      std::memcpy(rec + 10, &r.srs.reps, 2);
-      std::memcpy(rec + 12, &r.srs.ease, 2);
-      if (f.write(rec, sizeof(rec)) != sizeof(rec)) {
-        LOG_ERR(MOD, "Short write to sidecar temp");
-        f.close();
-        return false;
-      }
-    }
-    f.flush();
-    f.close();
-  }
-  Storage.remove(srsPath_.c_str());  // SdFat rename won't overwrite; drop first
-  if (!Storage.rename(tmp.c_str(), srsPath_.c_str())) {
-    LOG_ERR(MOD, "Cannot rename sidecar into place");
-    return false;
-  }
-  return true;
-}
-
-bool FlashcardDeck::appendCard(const std::string& tsvPath, const std::string& front, const std::string& back) {
-  Storage.mkdir("/flashcards");  // no-op if it exists
-  const std::string line = sanitizeField(front) + "\t" + sanitizeField(back) + "\n";
-  HalFile f = Storage.open(tsvPath.c_str(), O_WRONLY | O_CREAT | O_APPEND);
-  if (!f) {
-    LOG_ERR(MOD, "Cannot open deck for append: %s", tsvPath.c_str());
-    return false;
-  }
-  const bool ok = f.write(line.c_str(), line.size()) == line.size();
-  f.flush();
   f.close();
-  return ok;
+  return n;
 }

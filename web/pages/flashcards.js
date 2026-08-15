@@ -14,8 +14,9 @@ function flash(msg, ok = true) {
 
 function clean(s) { return s.replace(/[\t\r\n]+/g, ' ').trim(); }
 
-function makeRow(front = '', back = '') {
+function makeRow(front = '', back = '', sched = null) {
   const tr = document.createElement('tr');
+  tr._sched = sched;  // preserved SM-2 columns [reps, ef, interval, nextSession], or null for a new card
 
   const num = document.createElement('td');
   num.className = 'col-num';
@@ -71,7 +72,7 @@ function setMeta(name, count) {
 function setRows(cards) {
   rowsEl.replaceChildren();
   if (!cards.length) rowsEl.appendChild(makeRow());
-  else cards.forEach(([f, b]) => rowsEl.appendChild(makeRow(f, b)));
+  else cards.forEach(c => rowsEl.appendChild(makeRow(c.front, c.back, c.sched)));
   renumber();
 }
 
@@ -81,37 +82,48 @@ function showEmpty(msg) {
 }
 
 // Load a deck: tab-delimited if any tab is present, else comma (quote-aware via
-// parseDelimited). '#' comments and blank lines are skipped; the first two
-// columns become front/back.
-// First two columns are front/back; any further columns (a deck's own SM-2
-// stats: Repetitions, EasinessFactor, Interval, NextReviewSession) are ignored.
-// '#' comments, blank lines, and a "Front/Back" header row are skipped.
+// parseDelimited). Columns 0/1 are front/back; columns 2-5 (Repetitions,
+// EasinessFactor, Interval, NextReviewSession) are the SM-2 schedule, kept per
+// card so a save preserves review progress. '#' comments, blank lines, and a
+// "Front/Back" header row are skipped.
 function parseDeck(text) {
   const delim = text.includes('\t') ? '\t' : ',';
   return parseDelimited(text, delim)
-    .map(r => [(r[0] || '').trim(), (r[1] || '').trim()])
-    .filter(r => (r[0] || r[1]) && r[0][0] !== '#' && !(r[0] === 'Front' && r[1] === 'Back'));
+    .map(r => ({
+      front: (r[0] || '').trim(),
+      back: (r[1] || '').trim(),
+      sched: r.length >= 6 ? [r[2], r[3], r[4], r[5]].map(x => (x || '').trim()) : null,
+    }))
+    .filter(c => (c.front || c.back) && c.front[0] !== '#' && !(c.front === 'Front' && c.back === 'Back'));
 }
 
-function csvEscape(s) {
-  return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+// Quote a field if it contains the delimiter, a quote, or a newline (RFC 4180).
+function escapeField(s, delim) {
+  return (s.includes(delim) || s.includes('"') || s.includes('\n') || s.includes('\r'))
+    ? '"' + s.replace(/"/g, '""') + '"'
+    : s;
 }
 
-// Serialize the table to the deck's native format: CSV when the filename ends
-// in .csv (quote-aware), otherwise TSV. Empty rows are dropped.
+// Serialize the table to the deck's native format (CSV when the filename ends in
+// .csv, else TSV), writing the Front/Back + SM-2 header and all six columns.
+// Each card keeps its preserved schedule; new/imported cards get SM-2 defaults
+// (reps 0, EF 2500, interval 0, due now). Empty rows are dropped.
 function buildDeck() {
-  const isCsv = /\.csv$/i.test(currentDeck || '');
-  const lines = [];
+  const delim = /\.csv$/i.test(currentDeck || '') ? ',' : '\t';
+  const header = ['Front', 'Back', 'Repetitions', 'EasinessFactor', 'Interval', 'NextReviewSession'].join(delim);
+  const lines = [header];
+  let count = 0;
   for (const tr of rowsEl.children) {
     const inputs = tr.querySelectorAll('input');
     if (inputs.length < 2) continue;
-    let f = inputs[0].value, b = inputs[1].value;
-    if (isCsv) { f = f.replace(/[\r\n]+/g, ' '); b = b.replace(/[\r\n]+/g, ' '); }
-    else { f = clean(f); b = clean(b); }
+    const f = inputs[0].value.replace(/[\t\r\n]+/g, ' ').trim();
+    const b = inputs[1].value.replace(/[\t\r\n]+/g, ' ').trim();
     if (!f && !b) continue;
-    lines.push(isCsv ? csvEscape(f) + ',' + csvEscape(b) : f + '\t' + b);
+    const s = tr._sched || ['0', '2500', '0', '0'];
+    lines.push([escapeField(f, delim), escapeField(b, delim), s[0], s[1], s[2], s[3]].join(delim));
+    count++;
   }
-  return { text: lines.length ? lines.join('\n') + '\n' : '', count: lines.length };
+  return { text: count ? lines.join('\n') + '\n' : '', count };
 }
 
 // ---- import (CSV/TSV, quote-aware) ----------------------------------------

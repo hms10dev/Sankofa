@@ -30,6 +30,7 @@ class FlashcardDeckPickerActivity final : public Activity {
     std::string title;  // basename without extension (for display)
     std::string path;   // full "/flashcards/<file>"
     uint16_t cards;     // total card count
+    uint16_t due;       // cards due at the current session
   };
 
   std::vector<DeckEntry> decks_;

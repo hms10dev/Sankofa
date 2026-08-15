@@ -2040,8 +2040,8 @@ void CrossPointWebServer::handleFlashcardsDeckDelete() const {
     server->send(400, "application/json", "{\"error\":\"Invalid deck name\"}");
     return;
   }
-  Storage.remove(path.c_str());                                       // the .tsv
-  Storage.remove((path.substr(0, path.size() - 4) + ".srs").c_str());  // its scheduling sidecar
+  Storage.remove(path.c_str());              // the deck (schedule lives inside it)
+  Storage.remove((path + ".tmp").c_str());   // any interrupted-save leftover
   server->send(200, "application/json", "{\"ok\":true}");
   LOG_DBG("WEB", "Deleted flashcard deck: %s", path.c_str());
 }

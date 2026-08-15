@@ -10,6 +10,7 @@
 #include "FlashcardReviewActivity.h"
 #include "components/UITheme.h"  // GUI singleton (drawButtonHints)
 #include "flashcards/FlashcardDeck.h"
+#include "flashcards/FlashcardSession.h"
 #include "fontIds.h"
 
 namespace {
@@ -39,6 +40,7 @@ void FlashcardDeckPickerActivity::onEnter() {
 
 void FlashcardDeckPickerActivity::scanDecks() {
   decks_.clear();
+  const uint32_t session = FlashcardSession::instance().session();
   for (const String& f : Storage.listFiles("/flashcards", 100)) {
     const std::string name(f.c_str());
     if (!isDeckFile(name)) continue;
@@ -46,6 +48,7 @@ void FlashcardDeckPickerActivity::scanDecks() {
     e.title = titleOf(name);
     e.path = "/flashcards/" + name;
     e.cards = static_cast<uint16_t>(FlashcardDeck::countCards(e.path));
+    e.due = static_cast<uint16_t>(FlashcardDeck::countDue(e.path, session));
     decks_.push_back(std::move(e));
   }
   std::sort(decks_.begin(), decks_.end(),
@@ -132,8 +135,12 @@ void FlashcardDeckPickerActivity::render(RenderLock&&) {
     if (sel) renderer.fillRect(0, rowY, w - 1, ROW_HEIGHT, true);
 
     const DeckEntry& d = decks_[idx];
-    char meta[24];
-    std::snprintf(meta, sizeof(meta), "%u card%s", (unsigned)d.cards, d.cards == 1 ? "" : "s");
+    char meta[28];
+    if (d.due > 0) {
+      std::snprintf(meta, sizeof(meta), "%u due", (unsigned)d.due);
+    } else {
+      std::snprintf(meta, sizeof(meta), "%u card%s", (unsigned)d.cards, d.cards == 1 ? "" : "s");
+    }
     const int metaW = renderer.getTextWidth(META_FONT, meta);
 
     const std::string title = renderer.truncatedText(ROW_FONT, d.title.c_str(), w - 2 * SIDE_PADDING - metaW - 12);

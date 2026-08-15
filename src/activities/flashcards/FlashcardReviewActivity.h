@@ -1,14 +1,18 @@
 // src/activities/flashcards/FlashcardReviewActivity.h
 //
-// The review screen: shows a card front, flips on Confirm, grades on Left/Right
-// (Again/Good), applies SM-2 + persists, advances. Opened from Home (via a new
-// HomeMenuItem::FLASHCARDS) with a deck path, or launched directly on a deck.
+// The review screen: shows a card front, flips on Confirm, grades on the four
+// buttons (Again/Hard/Good/Easy), applies session-based SM-2, rewrites the deck
+// file, and advances. Opened from the deck picker (Home -> Flashcards) with a
+// deck path. Scheduling is session-based (no clock): the global session counter
+// (FlashcardSession) advances when the review cycle completes and the daily goal
+// was met.
 //
-// Mirrors DictionaryDefinitionActivity's structure: loop() reads input and
-// calls finish()/requestUpdate(); render(RenderLock&&) composes the frame and
-// ends with GUI.drawButtonHints + displayBuffer().
+// Mirrors DictionaryDefinitionActivity's structure: loop() reads input and calls
+// finish()/requestUpdate(); render(RenderLock&&) composes the frame and ends
+// with GUI.drawButtonHints + displayBuffer().
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <utility>
 #include <vector>
@@ -22,6 +26,7 @@ class FlashcardReviewActivity final : public Activity {
       : Activity("FlashcardReview", renderer, mappedInput), deckPath_(std::move(deckPath)) {}
 
   void onEnter() override;
+  void onExit() override;
   void loop() override;
   void render(RenderLock&&) override;
 
@@ -31,26 +36,16 @@ class FlashcardReviewActivity final : public Activity {
   FlashcardDeck deck_;
   std::string deckPath_;
   State state_ = State::Empty;
-  uint32_t today_ = 0;         // epoch-day, captured on entry
+  uint32_t session_ = 0;          // global session, captured on entry
   bool backHoldHandled_ = false;  // guards the long-press-Back-to-exit gesture
 
+  void gradeAndAdvance(Grade g);
   void afterGrade();
   std::string deckName() const;  // basename for the header
 
-  // ---- Today's date, from the device RTC ---------------------------------
-  // Epoch-day = days since 1970-01-01. Returns 0 when the RTC is absent or
-  // never set (oscillator-stopped) — in that degraded mode every card reads as
-  // due, so review still works, it just can't space cards out until the clock
-  // is set. (Flowe gets time from the phone; CrossPoint can set it via the web
-  // settings UI.)
-  static uint32_t todayEpochDay();
-  // Pure calendar math (Howard Hinnant's days_from_civil) — no <ctime>, exact.
-  static long daysFromCivil(int y, unsigned m, unsigned d);
-
   // ---- Word wrap ----------------------------------------------------------
   // Greedy word-wrap `text` to `maxWidth` px at `fontId`, returning display
-  // lines. Adapted from DictionaryDefinitionActivity's wrap (simplified for the
-  // short strings on a card face).
+  // lines. Adapted from DictionaryDefinitionActivity's wrap.
   std::vector<std::string> wrapToWidth(int fontId, const std::string& text, int maxWidth) const;
   // Draw wrapped text as a centered block whose vertical center is `centerY`.
   void drawWrappedCentered(int fontId, const std::string& text, int centerY, int maxWidth, bool bold) const;
