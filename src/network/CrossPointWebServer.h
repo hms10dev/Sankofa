@@ -141,4 +141,11 @@ class CrossPointWebServer {
   void handleGetWifiNetworks() const;
   void handlePostWifiNetwork();
   void handleDeleteWifiNetwork();
+
+  // Flashcards deck editor handlers
+  void handleFlashcardsPage() const;
+  void handleFlashcardsDeckList() const;
+  void handleFlashcardsDeckGet() const;
+  void handleFlashcardsDeckSave() const;
+  void handleFlashcardsDeckDelete() const;
 };

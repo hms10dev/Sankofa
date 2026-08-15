@@ -24,6 +24,7 @@
 #include "WebDAVHandler.h"
 #include "WifiCredentialStore.h"
 #include "html/FilesPageHtml.generated.h"
+#include "html/FlashcardsPageHtml.generated.h"
 #include "html/FontsPageHtml.generated.h"
 #include "html/HomePageHtml.generated.h"
 #include "html/LogoPng.generated.h"
@@ -211,6 +212,13 @@ void CrossPointWebServer::begin() {
   server->on("/api/fonts", HTTP_GET, [this] { handleFontList(); });
   server->on("/api/fonts/upload", HTTP_POST, [this] { handleFontUpload(); }, [this] { handleFontUploadData(); });
   server->on("/api/fonts/delete", HTTP_POST, [this] { handleFontDelete(); });
+
+  // Flashcards deck editor
+  server->on("/flashcards", HTTP_GET, [this] { handleFlashcardsPage(); });
+  server->on("/api/flashcards/decks", HTTP_GET, [this] { handleFlashcardsDeckList(); });
+  server->on("/api/flashcards/deck", HTTP_GET, [this] { handleFlashcardsDeckGet(); });
+  server->on("/api/flashcards/deck", HTTP_POST, [this] { handleFlashcardsDeckSave(); });
+  server->on("/api/flashcards/deck/delete", HTTP_POST, [this] { handleFlashcardsDeckDelete(); });
 
   // OPDS server endpoints
   server->on("/api/opds", HTTP_GET, [this] { handleGetOpdsServers(); });
@@ -1949,4 +1957,84 @@ void CrossPointWebServer::handleFontDelete() {
     server->send(500, "application/json", "{\"error\":\"Delete failed\"}");
     LOG_ERR("WEB", "Failed to delete font family: %s", familyName);
   }
+}
+
+// ---- Flashcards deck editor -------------------------------------------------
+
+static constexpr char FLASHCARDS_DIR[] = "/flashcards";
+
+// Build a validated "/flashcards/<name>.tsv" path from a user-supplied name, or
+// "" when the name sanitizes to nothing. sanitizeFilename() strips path
+// separators, so the result can never escape the flashcards directory.
+static std::string flashcardDeckPath(const std::string& rawName) {
+  std::string name = StringUtils::sanitizeFilename(rawName);
+  if (name.empty()) return {};
+  if (name.size() < 4 || name.compare(name.size() - 4, 4, ".tsv") != 0) name += ".tsv";
+  return std::string(FLASHCARDS_DIR) + "/" + name;
+}
+
+void CrossPointWebServer::handleFlashcardsPage() const {
+  sendHtmlContent(server.get(), FlashcardsPageHtml, sizeof(FlashcardsPageHtml));
+  LOG_DBG("WEB", "Served flashcards page");
+}
+
+void CrossPointWebServer::handleFlashcardsDeckList() const {
+  JsonDocument doc;
+  JsonArray arr = doc["decks"].to<JsonArray>();
+  for (const String& f : Storage.listFiles(FLASHCARDS_DIR, 200)) {
+    const int len = f.length();
+    if (len > 4 && f.substring(len - 4).equalsIgnoreCase(".tsv")) {
+      arr.add(f);
+    }
+  }
+  String json;
+  serializeJson(doc, json);
+  server->send(200, "application/json", json);
+}
+
+void CrossPointWebServer::handleFlashcardsDeckGet() const {
+  const std::string path = flashcardDeckPath(server->arg("name").c_str());
+  if (path.empty()) {
+    server->send(400, "text/plain", "Invalid deck name");
+    return;
+  }
+  if (!Storage.exists(path.c_str())) {
+    server->send(404, "text/plain", "Deck not found");
+    return;
+  }
+  server->send(200, "text/plain; charset=utf-8", Storage.readFile(path.c_str()));
+}
+
+void CrossPointWebServer::handleFlashcardsDeckSave() const {
+  const std::string path = flashcardDeckPath(server->arg("name").c_str());
+  if (path.empty()) {
+    server->send(400, "application/json", "{\"error\":\"Invalid deck name\"}");
+    return;
+  }
+  Storage.mkdir(FLASHCARDS_DIR);  // no-op when it already exists
+  if (Storage.writeFile(path.c_str(), server->arg("plain"))) {
+    server->send(200, "application/json", "{\"ok\":true}");
+    LOG_DBG("WEB", "Saved flashcard deck: %s", path.c_str());
+  } else {
+    server->send(500, "application/json", "{\"error\":\"Write failed\"}");
+    LOG_ERR("WEB", "Failed to write flashcard deck: %s", path.c_str());
+  }
+}
+
+void CrossPointWebServer::handleFlashcardsDeckDelete() const {
+  const String body = server->arg("plain");
+  JsonDocument doc;
+  if (deserializeJson(doc, body) || !doc["name"].is<const char*>()) {
+    server->send(400, "application/json", "{\"error\":\"Invalid request\"}");
+    return;
+  }
+  const std::string path = flashcardDeckPath(doc["name"].as<const char*>());
+  if (path.empty()) {
+    server->send(400, "application/json", "{\"error\":\"Invalid deck name\"}");
+    return;
+  }
+  Storage.remove(path.c_str());                                       // the .tsv
+  Storage.remove((path.substr(0, path.size() - 4) + ".srs").c_str());  // its scheduling sidecar
+  server->send(200, "application/json", "{\"ok\":true}");
+  LOG_DBG("WEB", "Deleted flashcard deck: %s", path.c_str());
 }
