@@ -48,25 +48,21 @@ std::string sanitizeField(const std::string& s) {
   return o;
 }
 
-// Split a deck line into front/back. A tab wins when present (tabs never occur
-// inside a field, and pasting from a spreadsheet is tab-delimited); otherwise
-// the line is read as CSV and the first two comma-separated fields are taken,
-// honoring RFC-4180 double-quoting so commas inside "quoted, values" survive.
-// Extra columns are ignored. Returns false when the line has no separator.
+// Extract the first two fields of a deck line as front/back. The delimiter is a
+// tab when the line has one (spreadsheet/Anki-style .tsv), otherwise a comma
+// (.csv). Fields are parsed RFC-4180-style, so double-quoted values keep their
+// embedded delimiters and "" un-escapes to a single quote. Any columns past the
+// first two (e.g. a deck that stores its own SM-2 stats: Repetitions,
+// EasinessFactor, Interval, NextReviewSession) are ignored. Returns false when
+// the line has no delimiter at all.
 bool splitCardLine(const std::string& line, std::string& front, std::string& back) {
   front.clear();
   back.clear();
 
-  const auto tab = line.find('\t');
-  if (tab != std::string::npos) {
-    front = line.substr(0, tab);
-    back = line.substr(tab + 1);
-    return true;
-  }
-
+  const char delim = line.find('\t') != std::string::npos ? '\t' : ',';
   bool inQuotes = false;
-  int field = 0;  // 0 = front, 1 = back, >=2 = trailing columns (ignored)
-  bool sawComma = false;
+  int field = 0;  // 0 = front, 1 = back, 2 = reached the third column (stop)
+  bool sawDelim = false;
   for (size_t i = 0; i < line.size(); ++i) {
     const char c = line[i];
     std::string& dst = field == 0 ? front : back;
@@ -83,14 +79,14 @@ bool splitCardLine(const std::string& line, std::string& front, std::string& bac
       }
     } else if (c == '"') {
       inQuotes = true;
-    } else if (c == ',') {
-      sawComma = true;
-      if (++field >= 2) break;  // front + back captured; drop any extra columns
+    } else if (c == delim) {
+      sawDelim = true;
+      if (++field >= 2) break;  // front + back captured; ignore any extra columns
     } else if (field < 2) {
       dst += c;
     }
   }
-  return sawComma;  // need at least one comma to have both a front and a back
+  return sawDelim;  // need at least one delimiter to have both a front and a back
 }
 
 std::string srsPathFor(const std::string& tsvPath) {
@@ -144,7 +140,8 @@ bool FlashcardDeck::load(const std::string& tsvPath, uint32_t todayEpochDay) {
   std::string line, front, back;
   while (readLine(f, line)) {
     if (line.empty() || line[0] == '#') continue;
-    if (!splitCardLine(line, front, back)) continue;  // no tab or comma separator
+    if (!splitCardLine(line, front, back)) continue;         // no tab or comma separator
+    if (front == "Front" && back == "Back") continue;        // spreadsheet/Anki header row
     totalCount_++;
 
     Card c;

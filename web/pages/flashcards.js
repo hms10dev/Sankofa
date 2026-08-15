@@ -83,11 +83,14 @@ function showEmpty(msg) {
 // Load a deck: tab-delimited if any tab is present, else comma (quote-aware via
 // parseDelimited). '#' comments and blank lines are skipped; the first two
 // columns become front/back.
+// First two columns are front/back; any further columns (a deck's own SM-2
+// stats: Repetitions, EasinessFactor, Interval, NextReviewSession) are ignored.
+// '#' comments, blank lines, and a "Front/Back" header row are skipped.
 function parseDeck(text) {
   const delim = text.includes('\t') ? '\t' : ',';
   return parseDelimited(text, delim)
     .map(r => [(r[0] || '').trim(), (r[1] || '').trim()])
-    .filter(r => (r[0] || r[1]) && r[0][0] !== '#');
+    .filter(r => (r[0] || r[1]) && r[0][0] !== '#' && !(r[0] === 'Front' && r[1] === 'Back'));
 }
 
 function csvEscape(s) {
