@@ -1963,13 +1963,21 @@ void CrossPointWebServer::handleFontDelete() {
 
 static constexpr char FLASHCARDS_DIR[] = "/flashcards";
 
-// Build a validated "/flashcards/<name>.tsv" path from a user-supplied name, or
-// "" when the name sanitizes to nothing. sanitizeFilename() strips path
-// separators, so the result can never escape the flashcards directory.
+static bool isDeckFilename(const String& f) {
+  const int len = f.length();
+  if (len <= 4) return false;
+  const String ext = f.substring(len - 4);
+  return ext.equalsIgnoreCase(".tsv") || ext.equalsIgnoreCase(".csv");
+}
+
+// Build a validated "/flashcards/<name>" path from a user-supplied name, or ""
+// when the name sanitizes to nothing. sanitizeFilename() strips path
+// separators, so the result can never escape the flashcards directory. A name
+// without a .tsv/.csv extension defaults to .tsv (new decks).
 static std::string flashcardDeckPath(const std::string& rawName) {
   std::string name = StringUtils::sanitizeFilename(rawName);
   if (name.empty()) return {};
-  if (name.size() < 4 || name.compare(name.size() - 4, 4, ".tsv") != 0) name += ".tsv";
+  if (!isDeckFilename(String(name.c_str()))) name += ".tsv";
   return std::string(FLASHCARDS_DIR) + "/" + name;
 }
 
@@ -1982,8 +1990,7 @@ void CrossPointWebServer::handleFlashcardsDeckList() const {
   JsonDocument doc;
   JsonArray arr = doc["decks"].to<JsonArray>();
   for (const String& f : Storage.listFiles(FLASHCARDS_DIR, 200)) {
-    const int len = f.length();
-    if (len > 4 && f.substring(len - 4).equalsIgnoreCase(".tsv")) {
+    if (isDeckFilename(f)) {
       arr.add(f);
     }
   }

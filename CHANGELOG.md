@@ -2,8 +2,8 @@
 ## [Unreleased]
 
 ### Added
-- Flashcards: review spaced-repetition decks straight from the Home menu. Drop tab-separated `.tsv` decks into `/flashcards` on the SD card, then open Home → Flashcards to study; grading uses the SM-2 algorithm (Again/Hard/Good/Easy) and is saved to a per-deck `.srs` sidecar so cards space out over time.
-- Flashcards deck editor in the Wi-Fi portal: a new **Flashcards** page to create, edit, and delete decks from your browser, including CSV/TSV import (Anki/Quizlet exports work directly) — no on-device typing.
+- Flashcards: review spaced-repetition decks straight from the Home menu. Drop `.tsv` or `.csv` decks into `/flashcards` on the SD card, then open Home → Flashcards to study; grading uses the SM-2 algorithm (Again/Hard/Good/Easy) and is saved to a per-deck `.srs` sidecar so cards space out over time. Cards may be **comma- or tab-separated** (quoted `"fields, with commas"` are handled), so spreadsheet and Anki/Quizlet exports work as-is.
+- Flashcards deck editor in the Wi-Fi portal: a new **Flashcards** page to create, edit, and delete decks from your browser, including CSV/TSV import (Anki/Quizlet exports work directly) — no on-device typing. Decks are saved back in their original `.csv` or `.tsv` format.
 
 ## [v1.3.4] - 2026-06-24
 

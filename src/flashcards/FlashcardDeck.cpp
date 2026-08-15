@@ -48,6 +48,51 @@ std::string sanitizeField(const std::string& s) {
   return o;
 }
 
+// Split a deck line into front/back. A tab wins when present (tabs never occur
+// inside a field, and pasting from a spreadsheet is tab-delimited); otherwise
+// the line is read as CSV and the first two comma-separated fields are taken,
+// honoring RFC-4180 double-quoting so commas inside "quoted, values" survive.
+// Extra columns are ignored. Returns false when the line has no separator.
+bool splitCardLine(const std::string& line, std::string& front, std::string& back) {
+  front.clear();
+  back.clear();
+
+  const auto tab = line.find('\t');
+  if (tab != std::string::npos) {
+    front = line.substr(0, tab);
+    back = line.substr(tab + 1);
+    return true;
+  }
+
+  bool inQuotes = false;
+  int field = 0;  // 0 = front, 1 = back, >=2 = trailing columns (ignored)
+  bool sawComma = false;
+  for (size_t i = 0; i < line.size(); ++i) {
+    const char c = line[i];
+    std::string& dst = field == 0 ? front : back;
+    if (inQuotes) {
+      if (c == '"') {
+        if (i + 1 < line.size() && line[i + 1] == '"') {  // "" -> literal quote
+          if (field < 2) dst += '"';
+          ++i;
+        } else {
+          inQuotes = false;
+        }
+      } else if (field < 2) {
+        dst += c;
+      }
+    } else if (c == '"') {
+      inQuotes = true;
+    } else if (c == ',') {
+      sawComma = true;
+      if (++field >= 2) break;  // front + back captured; drop any extra columns
+    } else if (field < 2) {
+      dst += c;
+    }
+  }
+  return sawComma;  // need at least one comma to have both a front and a back
+}
+
 std::string srsPathFor(const std::string& tsvPath) {
   auto dot = tsvPath.find_last_of('.');
   return (dot == std::string::npos ? tsvPath : tsvPath.substr(0, dot)) + ".srs";
@@ -96,16 +141,15 @@ bool FlashcardDeck::load(const std::string& tsvPath, uint32_t todayEpochDay) {
     return false;
   }
 
-  std::string line;
+  std::string line, front, back;
   while (readLine(f, line)) {
     if (line.empty() || line[0] == '#') continue;
-    auto tab = line.find('\t');
-    if (tab == std::string::npos) continue;  // malformed row: no separator
+    if (!splitCardLine(line, front, back)) continue;  // no tab or comma separator
     totalCount_++;
 
     Card c;
-    c.front = line.substr(0, tab);
-    c.back = line.substr(tab + 1);
+    c.front = front;
+    c.back = back;
     c.hash = cardHash(c.front, c.back);
 
     if (SrsRec* r = findRec(c.hash)) {

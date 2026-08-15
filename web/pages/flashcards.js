@@ -80,29 +80,35 @@ function showEmpty(msg) {
   metaEl.textContent = '';
 }
 
-// Deck files are plain TSV: front<TAB>back, '#' comments and blank lines skipped.
-function parseTsvDeck(text) {
-  const cards = [];
-  for (const raw of text.split('\n')) {
-    const line = raw.replace(/\r$/, '');
-    if (!line || line[0] === '#') continue;
-    const t = line.indexOf('\t');
-    if (t < 0) continue;
-    cards.push([line.slice(0, t).trim(), line.slice(t + 1).trim()]);
-  }
-  return cards;
+// Load a deck: tab-delimited if any tab is present, else comma (quote-aware via
+// parseDelimited). '#' comments and blank lines are skipped; the first two
+// columns become front/back.
+function parseDeck(text) {
+  const delim = text.includes('\t') ? '\t' : ',';
+  return parseDelimited(text, delim)
+    .map(r => [(r[0] || '').trim(), (r[1] || '').trim()])
+    .filter(r => (r[0] || r[1]) && r[0][0] !== '#');
 }
 
-function buildTsv() {
+function csvEscape(s) {
+  return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+// Serialize the table to the deck's native format: CSV when the filename ends
+// in .csv (quote-aware), otherwise TSV. Empty rows are dropped.
+function buildDeck() {
+  const isCsv = /\.csv$/i.test(currentDeck || '');
   const lines = [];
   for (const tr of rowsEl.children) {
     const inputs = tr.querySelectorAll('input');
     if (inputs.length < 2) continue;
-    const f = clean(inputs[0].value), b = clean(inputs[1].value);
+    let f = inputs[0].value, b = inputs[1].value;
+    if (isCsv) { f = f.replace(/[\r\n]+/g, ' '); b = b.replace(/[\r\n]+/g, ' '); }
+    else { f = clean(f); b = clean(b); }
     if (!f && !b) continue;
-    lines.push(f + '\t' + b);
+    lines.push(isCsv ? csvEscape(f) + ',' + csvEscape(b) : f + '\t' + b);
   }
-  return { tsv: lines.length ? lines.join('\n') + '\n' : '', count: lines.length };
+  return { text: lines.length ? lines.join('\n') + '\n' : '', count: lines.length };
 }
 
 // ---- import (CSV/TSV, quote-aware) ----------------------------------------
@@ -179,7 +185,7 @@ async function loadDeck(name) {
   try {
     const res = await fetch('/api/flashcards/deck?name=' + encodeURIComponent(name));
     if (!res.ok) throw new Error('HTTP ' + res.status);
-    const cards = parseTsvDeck(await res.text());
+    const cards = parseDeck(await res.text());
     currentDeck = name;
     setRows(cards);
     setMeta(name, cards.length);
@@ -190,10 +196,10 @@ async function loadDeck(name) {
 
 async function saveDeck() {
   if (!currentDeck) { flash('No deck selected — use New deck first.', false); return; }
-  const { tsv, count } = buildTsv();
+  const { text, count } = buildDeck();
   try {
     const res = await fetch('/api/flashcards/deck?name=' + encodeURIComponent(currentDeck), {
-      method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: tsv
+      method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: text
     });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     setMeta(currentDeck, count);

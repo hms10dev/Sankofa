@@ -1774,7 +1774,9 @@ void HomeActivity::onFlashcardsOpen() {
   std::string deck;
   for (const String& f : Storage.listFiles("/flashcards", 50)) {
     const std::string name(f.c_str());
-    if (name.size() > 4 && name.compare(name.size() - 4, 4, ".tsv") == 0) {
+    const bool isDeck = name.size() > 4 && (name.compare(name.size() - 4, 4, ".tsv") == 0 ||
+                                            name.compare(name.size() - 4, 4, ".csv") == 0);
+    if (isDeck) {
       deck = "/flashcards/" + name;
       break;
     }
